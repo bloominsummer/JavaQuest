@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Data Type Dash</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Space Grotesk', sans-serif;
+      background-color: #0f172a;
+      color: white;
+      touch-action: none; /* Prevent browser scrolling on swipe */
+    }
+    #game-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(5px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+      transition: opacity 0.3s;
+    }
+    .hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    h1 {
+      font-size: 2.5rem;
+      color: #22d3ee;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+      text-shadow: 0 0 20px rgba(34, 211, 238, 0.5);
+    }
+    .mission-text {
+      font-size: 1.2rem;
+      color: #e2e8f0;
+      margin-bottom: 40px;
+      text-align: center;
+      max-width: 80%;
+      line-height: 1.5;
+    }
+    .mission-highlight {
+      color: #f0abfc;
+      font-weight: bold;
+      font-size: 1.5rem;
+      display: block;
+      margin-top: 10px;
+    }
+    .btn {
+      background: #0ea5e9;
+      border: none;
+      padding: 15px 40px;
+      color: #000;
+      font-weight: bold;
+      font-size: 1.2rem;
+      text-transform: uppercase;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 0 20px rgba(14, 165, 233, 0.4);
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      transform: scale(1.05);
+      background: #38bdf8;
+      box-shadow: 0 0 30px rgba(14, 165, 233, 0.6);
+    }
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .hud-item {
+      background: rgba(15, 23, 42, 0.6);
+      padding: 10px 20px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+    #score-val { color: #22d3ee; }
+    #mission-hud { color: #f0abfc; }
+    .heart { color: #f43f5e; margin-right: 5px; }
+    
+    #damage-overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: radial-gradient(circle, transparent 50%, rgba(244, 63, 94, 0.5) 100%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      z-index: 4;
+    }
+    
+    #controls-hint {
+      position: absolute;
+      bottom: 20px;
+      width: 100%;
+      text-align: center;
+      color: rgba(255,255,255,0.4);
+      font-size: 0.9rem;
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Game Canvas -->
+  <div id="game-container"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-item">
+      <span id="lives-display">
+        <span class="heart">❤</span><span class="heart">❤</span><span class="heart">❤</span>
+      </span>
+    </div>
+    <div class="hud-item" id="mission-hud">COLLECT: ???</div>
+    <div class="hud-item">SCORE: <span id="score-val">0</span></div>
+  </div>
+
+  <div id="damage-overlay"></div>
+  <div id="controls-hint">Swipe or Mouse to Move</div>
+
+  <!-- Start Screen -->
+  <div id="start-screen" class="overlay">
+    <h1>Data Type Dash</h1>
+    <div class="mission-text">
+      Your mission is to collect data packets matching the target type.
+      <span id="mission-target" class="mission-highlight">LOADING...</span>
+    </div>
+    <button id="start-btn" class="btn">Start Run</button>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="game-over-screen" class="overlay hidden">
+    <h1 id="go-title">Game Over</h1>
+    <div class="mission-text">
+      Final Score: <span id="final-score" style="color:#22d3ee">0</span>
+    </div>
+    <button id="restart-btn" class="btn">Retry</button>
+  </div>
+
+  <!-- Victory Screen -->
+  <div id="victory-screen" class="overlay hidden">
+    <h1 style="color: #4ade80">Mission Success</h1>
+    <div class="mission-text">
+      Data Integrity Verified.
+      <br>Score: <span id="vic-score" style="color:#22d3ee">0</span>
+    </div>
+    <button id="continue-btn" class="btn" style="background: #22c55e; color:white;">Continue</button>
+  </div>
+
+  <!-- Logic -->
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+    // --- CONFIG ---
+    const TARGET_SCORE = 50;
+    const LANES = [-2.5, 0, 2.5]; // Left, Center, Right x positions
+    const SPEED_INITIAL = 0.3;
+    const SPEED_MAX = 0.8;
+    const SPAWN_RATE_INITIAL = 60; // Frames between spawns
+
+    // --- STATE ---
+    let gameActive = false;
+    let score = 0;
+    let lives = 3;
+    let speed = SPEED_INITIAL;
+    let frame = 0;
+    let spawnRate = SPAWN_RATE_INITIAL;
+    let currentLane = 1; // 0=Left, 1=Center, 2=Right
+    let targetLaneX = LANES[1];
+    
+    // Mission Types
+    const TYPES = {
+      INT: { color: 0x3b82f6, name: 'INT', examples: ['42', '-5', '100', '0', '99'] },
+      STRING: { color: 0xa855f7, name: 'STRING', examples: ['"Hi"', '"Java"', '"Code"', '"Dev"'] },
+      BOOLEAN: { color: 0x22c55e, name: 'BOOLEAN', examples: ['true', 'false'] },
+      CHAR: { color: 0xf59e0b, name: 'CHAR', examples: ["'A'", "'Z'", "'$'", "'9'"] }
+    };
+    
+    let currentMission = null;
+    let objects = []; // Active game objects
+    
+    // --- THREE.JS SETUP ---
+    const container = document.getElementById('game-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f172a);
+    scene.fog = new THREE.FogExp2(0x0f172a, 0.08);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 3, 6);
+    camera.lookAt(0, 0, -5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 10, 5);
+    scene.add(dirLight);
+
+    // --- GAME ASSETS ---
+
+    // 1. Road (Grid)
+    const gridHelper = new THREE.GridHelper(40, 40, 0x0ea5e9, 0x1e293b);
+    gridHelper.position.z = -10;
+    gridHelper.scale.z = 2;
+    scene.add(gridHelper);
+
+    // 2. Player (Simple Robot)
+    const playerGroup = new THREE.Group();
+    
+    // Body
+    const bodyGeo = new THREE.BoxGeometry(0.8, 1, 0.5);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x22d3ee, emissive: 0x0ea5e9, emissiveIntensity: 0.2 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.75;
+    playerGroup.add(body);
+
+    // Head
+    const headGeo = new THREE.BoxGeometry(0.5, 0.4, 0.4);
+    const headMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.5;
+    playerGroup.add(head);
+
+    // Glow Aura
+    const auraGeo = new THREE.SphereGeometry(1.2, 16, 16);
+    const auraMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.1, wireframe: true });
+    const aura = new THREE.Mesh(auraGeo, auraMat);
+    aura.position.y = 0.75;
+    playerGroup.add(aura);
+
+    scene.add(playerGroup);
+
+    // --- HELPERS ---
+    
+    // Canvas Text Texture Generator
+    function createTextTexture(text, colorHex) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = colorHex; // Bg color
+      ctx.fillRect(0,0, 256, 128);
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 60px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 128, 64);
+      
+      const tex = new THREE.CanvasTexture(canvas);
+      return tex;
+    }
+
+    // Object Spawner
+    function spawnObject() {
+      // Decide lane
+      const laneIdx = Math.floor(Math.random() * 3);
+      const xPos = LANES[laneIdx];
+      
+      // Decide Type: 40% Correct, 60% Wrong
+      const isCorrect = Math.random() < 0.4;
+      let typeKey;
+      
+      if (isCorrect) {
+        typeKey = currentMission.key;
+      } else {
+        // Pick random wrong key
+        const keys = Object.keys(TYPES).filter(k => k !== currentMission.key);
+        typeKey = keys[Math.floor(Math.random() * keys.length)];
+      }
+
+      const typeData = TYPES[typeKey];
+      const textLabel = typeData.examples[Math.floor(Math.random() * typeData.examples.length)];
+
+      // Geometry based on type
+      let geo, mat;
+      mat = new THREE.MeshPhongMaterial({ color: typeData.color, shininess: 100 });
+      
+      // Different shapes for different types
+      if (typeKey === 'INT') geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+      else if (typeKey === 'STRING') geo = new THREE.SphereGeometry(0.5, 16, 16);
+      else if (typeKey === 'BOOLEAN') geo = new THREE.OctahedronGeometry(0.5);
+      else geo = new THREE.IcosahedronGeometry(0.5); // CHAR
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(xPos, 0.75, -20); // Spawn far away
+      
+      // Add Text Label Sprite
+      const spriteMap = createTextTexture(textLabel, '#' + new THREE.Color(typeData.color).getHexString());
+      const spriteMat = new THREE.SpriteMaterial({ map: spriteMap });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.position.y = 1.0;
+      sprite.scale.set(1.5, 0.75, 1);
+      mesh.add(sprite);
+
+      scene.add(mesh);
+      
+      objects.push({
+        mesh: mesh,
+        type: typeKey,
+        active: true
+      });
+    }
+
+    // --- GAME LOGIC ---
+
+    function initMission() {
+      const keys = Object.keys(TYPES);
+      const randomKey = keys[Math.floor(Math.random() * keys.length)];
+      currentMission = {
+        key: randomKey,
+        ...TYPES[randomKey]
+      };
+      
+      document.getElementById('mission-target').innerText = `COLLECT: ${currentMission.name}`;
+      document.getElementById('mission-target').style.color = '#' + new THREE.Color(currentMission.color).getHexString();
+      document.getElementById('mission-hud').innerText = `REQ: ${currentMission.name}`;
+      document.getElementById('mission-hud').style.color = '#' + new THREE.Color(currentMission.color).getHexString();
+    }
+
+    function startGame() {
+      score = 0;
+      lives = 3;
+      speed = SPEED_INITIAL;
+      objects.forEach(o => scene.remove(o.mesh));
+      objects = [];
+      updateHud();
+      
+      document.getElementById('start-screen').classList.add('hidden');
+      document.getElementById('game-over-screen').classList.add('hidden');
+      document.getElementById('victory-screen').classList.add('hidden');
+      
+      gameActive = true;
+    }
+
+    function gameOver(isVictory) {
+      gameActive = false;
+      if (isVictory) {
+        document.getElementById('vic-score').innerText = score;
+        document.getElementById('victory-screen').classList.remove('hidden');
+        window.parent.postMessage({ type: 'GAME_COMPLETE', score: score }, '*');
+      } else {
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('game-over-screen').classList.remove('hidden');
+      }
+    }
+
+    function updateHud() {
+      document.getElementById('score-val').innerText = score;
+      let hearts = '';
+      for(let i=0; i<lives; i++) hearts += '<span class="heart">❤</span>';
+      document.getElementById('lives-display').innerHTML = hearts;
+    }
+
+    function takeDamage() {
+      lives--;
+      updateHud();
+      
+      // Visual feedback
+      const overlay = document.getElementById('damage-overlay');
+      overlay.style.opacity = 1;
+      setTimeout(() => overlay.style.opacity = 0, 200);
+
+      if (lives <= 0) gameOver(false);
+    }
+
+    function addScore() {
+      score += 10;
+      updateHud();
+      
+      // Speed up
+      if (speed < SPEED_MAX) speed += 0.005;
+      if (spawnRate > 20) spawnRate -= 0.5;
+
+      if (score >= TARGET_SCORE) gameOver(true);
+    }
+
+    // --- INPUT ---
+    
+    // Mouse
+    document.addEventListener('mousemove', (e) => {
+      if (!gameActive) return;
+      const x = (e.clientX / window.innerWidth) * 2 - 1; // -1 to 1
+      
+      if (x < -0.33) currentLane = 0;
+      else if (x > 0.33) currentLane = 2;
+      else currentLane = 1;
+    });
+
+    // Touch
+    let touchStartX = 0;
+    document.addEventListener('touchstart', e => {
+      touchStartX = e.touches[0].clientX;
+    });
+    document.addEventListener('touchmove', e => {
+      if (!gameActive) return;
+      e.preventDefault(); // Stop scrolling
+      const touchX = e.touches[0].clientX;
+      const diff = touchX - touchStartX;
+      
+      // Swipe threshold
+      if (Math.abs(diff) > 30) {
+         // Determine lane based on screen position mostly
+         // Or simple relative shift
+         const xPct = touchX / window.innerWidth;
+         if (xPct < 0.33) currentLane = 0;
+         else if (xPct > 0.66) currentLane = 2;
+         else currentLane = 1;
+      }
+    });
+
+    // --- LOOP ---
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Animation (Always rotate start screen items if present, but here just game)
+      
+      if (gameActive) {
+        frame++;
+
+        // 1. Move Player
+        targetLaneX = LANES[currentLane];
+        playerGroup.position.x += (targetLaneX - playerGroup.position.x) * 0.1;
+        
+        // Bobbing
+        playerGroup.position.y = Math.sin(frame * 0.2) * 0.1;
+
+        // 2. Move Grid
+        gridHelper.position.z += speed;
+        if (gridHelper.position.z > 0) gridHelper.position.z = -10;
+
+        // 3. Spawning
+        if (frame % Math.floor(spawnRate) === 0) {
+          spawnObject();
+        }
+
+        // 4. Object Logic
+        for (let i = objects.length - 1; i >= 0; i--) {
+          const obj = objects[i];
+          obj.mesh.position.z += speed;
+          obj.mesh.rotation.x += 0.02;
+          obj.mesh.rotation.y += 0.02;
+
+          // Collision check
+          if (obj.mesh.position.z > -0.5 && obj.mesh.position.z < 1.0) {
+             // Z overlap, check X
+             const dist = Math.abs(obj.mesh.position.x - playerGroup.position.x);
+             if (dist < 0.8 && obj.active) {
+                obj.active = false;
+                scene.remove(obj.mesh);
+                
+                if (obj.type === currentMission.key) {
+                  addScore();
+                } else {
+                  takeDamage();
+                }
+             }
+          }
+
+          // Remove if passed
+          if (obj.mesh.position.z > 5) {
+             scene.remove(obj.mesh);
+             objects.splice(i, 1);
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // Init
+    initMission();
+    animate();
+
+    // Event Listeners
+    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('restart-btn').addEventListener('click', () => {
+      initMission();
+      startGame();
+    });
+    document.getElementById('continue-btn').addEventListener('click', () => {
+      window.parent.postMessage({ type: 'GAME_COMPLETE', score: score }, '*');
+    });
+
+    // Resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+  </script>
+</body>
+</html>
